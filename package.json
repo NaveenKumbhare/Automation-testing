@@ -1,13 +1,26 @@
 {
+  "name": "package.lock.json",
+  "version": "7.29.7",
+  "description": "",
+  "homepage": "https://github.com/shivamsilawat/CI_CD_Automation#readme",
+  "bugs": {
+    "url": "https://github.com/shivamsilawat/CI_CD_Automation/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shivamsilawat/CI_CD_Automation.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "jest.config.js",
+  "scripts": {
+    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
+    "start": "node server.js"
+  },
   "dependencies": {
     "express": "^5.3.0",
     "jest": "^30.5.2"
   },
-
-
-  "type": "module",
-  "scripts": {
-    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js"
- 
-  }
+  "devDependencies": {}
 }
