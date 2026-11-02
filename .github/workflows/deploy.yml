@@ -81,6 +81,10 @@ jobs:
               sudo apt-get update
               sudo apt-get install -y nodejs npm
             fi
+            if ! command -v curl >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y curl
+            fi
             if ! sudo sh -c 'command -v pm2 >/dev/null 2>&1'; then
               sudo npm install --global pm2
             fi
@@ -135,29 +139,39 @@ jobs:
           # Cleanup
           rm private_key.pem
 
-      - name: Verify deployment
+      - name: Verify application on EC2
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
-          echo "Waiting for application to start..."
-          sleep 10
+          printf '%s\n' "$SSH_PRIVATE_KEY" > private_key.pem
+          chmod 600 private_key.pem
+          trap 'rm -f private_key.pem' EXIT
 
-          # Check if app responds via nginx (try multiple times)
-          for i in {1..2}; do
-            echo "Attempt $i of 2..."
-            response=$(curl -s -o /dev/null -w "%{http_code}" "http://${EC2_HOST}/home" 2>/dev/null || echo "000")
-            
-            if [ "$response" = "200" ] || [ "$response" = "301" ] || [ "$response" = "302" ]; then
-              echo "✅ Deployment successful! App is responding with status: $response"
-              exit 0
+          echo "Checking the app directly on EC2 over SSH..."
+          for attempt in {1..12}; do
+            if response=$(ssh -i private_key.pem -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=10 "${EC2_USERNAME}@${EC2_HOST}" \
+              'curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8000/home'); then
+              if [ "$response" = '{"msg":"i am root!"}' ]; then
+                echo "✅ Deployment successful! /home returned the expected response."
+                exit 0
+              fi
+              echo "Attempt $attempt returned an unexpected response: $response"
+            else
+              echo "Attempt $attempt: the app is not responding yet."
             fi
-            
-            echo "Got response: $response, waiting 5 seconds..."
-            sleep 5
+
+            if [ "$attempt" -lt 12 ]; then
+              sleep 5
+            fi
           done
 
-          echo "❌ Deployment verification failed after 2 attempts"
-          echo "Please check PM2 logs on the server"
+          echo "❌ The app did not return the expected response after 12 attempts."
+          ssh -i private_key.pem -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=10 "${EC2_USERNAME}@${EC2_HOST}" \
+            'sudo pm2 status express-app; sudo pm2 logs express-app --lines 50 --nostream' || true
           exit 1
 
       - name: Rollback on failure
