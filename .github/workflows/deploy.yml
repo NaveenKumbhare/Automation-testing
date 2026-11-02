@@ -58,8 +58,9 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
           # Create SSH key file
-          echo "$SSH_PRIVATE_KEY" > private_key.pem
+          printf '%s\n' "$SSH_PRIVATE_KEY" > private_key.pem
           chmod 600 private_key.pem
+          trap 'rm -f private_key.pem' EXIT
 
           # Copy deployment package to EC2
           scp -i private_key.pem -o StrictHostKeyChecking=no \
@@ -68,15 +69,22 @@ jobs:
           # SSH into EC2 and deploy
           ssh -i private_key.pem -o StrictHostKeyChecking=no \
             ${EC2_USERNAME}@${EC2_HOST} << 'EOF'
-            
-            # Navigate to app directory
+            set -euo pipefail
+
+            # Prepare the app directory before entering it
+            sudo mkdir -p /var/www/express-app
+            sudo chown -R "$USER:$USER" /var/www/express-app
             cd /var/www/express-app
 
-            # Fix ownership first (important!)
-            echo "Fixing directory ownership..."
-            sudo chown -R $USER:$USER /var/www/express-app
-            
-            
+            # Install the runtime and process manager if this is a fresh server
+            if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y nodejs npm
+            fi
+            if ! sudo sh -c 'command -v pm2 >/dev/null 2>&1'; then
+              sudo npm install --global pm2
+            fi
+
             # Backup current version
             if [ -f "server.js" ]; then
               timestamp=$(date +%Y%m%d_%H%M%S)
@@ -161,18 +169,18 @@ jobs:
         run: |
           echo "🔄 Attempting to rollback to previous version..."
 
-          echo "$SSH_PRIVATE_KEY" > private_key.pem
+          printf '%s\n' "$SSH_PRIVATE_KEY" > private_key.pem
           chmod 600 private_key.pem
+          trap 'rm -f private_key.pem' EXIT
 
           ssh -i private_key.pem -o StrictHostKeyChecking=no \
             ${EC2_USERNAME}@${EC2_HOST} << 'EOF'
-            
+            set -euo pipefail
+
             cd /var/www/express-app
 
-            # Fix ownership first (important!)
             sudo chown -R $USER:$USER /var/www/express-app
-            
-            # Find latest backup
+
             latest_backup=$(ls -t backups/backup_*.tar.gz 2>/dev/null | head -1)
             
             if [ -n "$latest_backup" ]; then
@@ -185,5 +193,3 @@ jobs:
               echo "⚠️ No backup found, cannot rollback"
             fi
           EOF
-
-          rm private_key.pem
