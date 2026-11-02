@@ -122,15 +122,13 @@ jobs:
             # Create logs directory
             mkdir -p logs
             
-            # Zero-downtime reload with PM2
+            # Replace any existing PM2 definition so it uses the deployed entry point
             if sudo pm2 describe express-app > /dev/null 2>&1; then
-              echo "Reloading PM2 app (zero-downtime)..."
-              sudo pm2 reload express-app --update-env
-            else
-              echo "Starting new PM2 process..."
-              sudo pm2 start server.js --name express-app --cwd /var/www/express-app
+              sudo pm2 delete express-app
             fi
-            
+            sudo pm2 start /var/www/express-app/server.js \
+              --name express-app --cwd /var/www/express-app
+
             # Save PM2 process list
             sudo pm2 save
            
@@ -201,7 +199,12 @@ jobs:
               echo "Found backup: $latest_backup"
               tar -xzf "$latest_backup" -C /var/www/express-app
               npm ci --omit=dev
-              sudo pm2 reload express-app --update-env
+              if sudo pm2 describe express-app > /dev/null 2>&1; then
+                sudo pm2 delete express-app
+              fi
+              sudo pm2 start /var/www/express-app/server.js \
+                --name express-app --cwd /var/www/express-app
+              sudo pm2 save
               echo "✅ Rolled back to previous version"
             else
               echo "⚠️ No backup found, cannot rollback"
